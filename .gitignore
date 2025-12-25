@@ -1,0 +1,26 @@
+# --- Python Basics ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- Virtual Environments ---
+venv/
+env/
+.env
+.venv/
+
+# --- Project Data (CRITICAL) ---
+videos_raw/
+raw_data/
+dataset_ready/
+dataset_final/
+datasets/
+
+# --- IDE Settings ---
+.idea/
+*.swp
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
