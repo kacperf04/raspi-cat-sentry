@@ -1,6 +1,7 @@
 import os
 from typing import Tuple, Dict
 import cv2
+import numpy as np
 
 
 def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bool, target_total_images: int = 200,
@@ -68,6 +69,9 @@ def extract_frames(video_path: str, output_path: str, video_type: str, frame_cou
         ret, image = cap.read()
         count = 0
         while ret:
+            if not is_image_representative(image):
+                ret, image = cap.read()
+                continue
             total_processed_frames += 1
             if total_processed_frames % iterator_step == 0:
                 print(f"Saving frame {count} from {file}")
@@ -135,3 +139,15 @@ def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, i
         cap.release()
 
     return frame_count_dict
+
+
+def is_image_representative(image: cv2.Mat) -> bool:
+    """
+    Filters out images that have low color variance, ex. pure black (no lighting), pure white (direct and strong light on the camera lens)
+    :param image -- input image
+    :return -- True if the image is representative, False otherwise
+    """
+    color_variance = np.var(image)
+    if color_variance < 300:
+        return False
+    return True
