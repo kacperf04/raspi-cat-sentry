@@ -64,11 +64,9 @@ def extract_frames(video_path: str, output_path: str, video_type: str, frame_cou
     total_available_frames = frame_count_dict[video_type]["total_frames"]
     if total_available_frames == 0: return 0, 0
 
-    iterator_step = total_available_frames // frames_to_extract
     files = list(frame_count_dict[video_type]["videos"].keys())
-
-    global_frame_count = 0
     last_saved_image = None
+    frames_since_last_save = float("inf")
 
     for file in files:
         full_path = os.path.join(video_path, file)
@@ -83,10 +81,21 @@ def extract_frames(video_path: str, output_path: str, video_type: str, frame_cou
             ret, image = cap.read()
             if not ret: break
 
-            global_frame_count += 1
+            frames_since_last_save += 1
             total_processed_frames += 1
 
-            if global_frame_count % iterator_step == 0:
+            frames_needed = frames_to_extract - total_saved_frames
+            left_available_frames = total_available_frames - total_processed_frames
+
+            if frames_needed <= 0:
+                break
+
+            if left_available_frames > 0:
+                current_step = left_available_frames / frames_needed
+            else:
+                current_step = 1
+
+            if frames_since_last_save >= current_step:
                 if not is_image_representative(last_saved_image, image): continue
 
                 save_name = f"{video_type}_{total_saved_frames}.jpg"
