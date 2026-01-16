@@ -1,5 +1,3 @@
-import cv2
-
 from src.utils import frame_splitter
 
 

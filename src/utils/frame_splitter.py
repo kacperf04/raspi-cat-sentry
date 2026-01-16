@@ -9,7 +9,7 @@ DUPLICATE_THRESHOLD = 5
 VALID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 
 def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bool, target_total_images: int = 200,
-                 target_porch_with_cat_percentage: float = 0.7, target_empty_porch_percentage: float = 0.3) -> None:
+                 target_porch_with_cat_percentage: float = 0.7, target_empty_porch_percentage: float = 0.3, target_day_percentage: float = 0.6) -> None:
     """
     Extracts frames from raw videos and saves them in a specified output directory
     :param raw_videos_path -- path to the directory containing raw videos
@@ -18,6 +18,7 @@ def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bo
     :param target_total_images -- total number of frames to extract from all videos
     :param target_porch_with_cat_percentage -- percentage of frames to extract from porch videos with a cat
     :param target_empty_porch_percentage -- percentage of frames to extract from empty porch videos
+    :param target_day_percentage -- percentage of frames to extract from videos during the day (frames from night videos are a complementary subset of frames from day videos)
     :return -- None
     """
     total_saved_frames = 0
@@ -33,15 +34,23 @@ def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bo
 
     frame_count_dict = count_total_frames(raw_videos_path)
 
-    frames_to_extract_porch_cat = int(target_total_images * target_porch_with_cat_percentage)
-    frames_to_extract_empty_porch = int(target_total_images * target_empty_porch_percentage)
+    frames_to_extract_porch_cat_day = int(target_total_images * target_porch_with_cat_percentage) * target_day_percentage
+    frames_to_extract_porch_cat_night = int(target_total_images * target_porch_with_cat_percentage) * (1 - target_day_percentage)
+    frames_to_extract_empty_porch_day = int(target_total_images * target_empty_porch_percentage) * target_day_percentage
+    frames_to_extract_empty_porch_night = int(target_total_images * target_empty_porch_percentage) * (1 - target_day_percentage)
 
-    frame_info_porch_cat = extract_frames(raw_videos_path, output_path, "porch_cat", frame_count_dict, frames_to_extract_porch_cat)
-    frame_info_empty_porch = extract_frames(raw_videos_path, output_path, "empty_porch", frame_count_dict, frames_to_extract_empty_porch)
+    frame_info_porch_cat_day = extract_frames(raw_videos_path, output_path, "porch_cat_day", frame_count_dict,
+                                              frames_to_extract_porch_cat_day)
+    frame_info_porch_cat_night = extract_frames(raw_videos_path, output_path, "porch_cat_night", frame_count_dict,
+                                              frames_to_extract_porch_cat_night)
+    frame_info_empty_porch_day = extract_frames(raw_videos_path, output_path, "empty_porch_day", frame_count_dict,
+                                                frames_to_extract_empty_porch_day)
+    frame_info_empty_porch_night = extract_frames(raw_videos_path, output_path, "empty_porch_night", frame_count_dict,
+                                                frames_to_extract_empty_porch_night)
 
-    total_processed_frames += frame_info_porch_cat[0] + frame_info_empty_porch[0]
-    total_saved_frames += frame_info_porch_cat[1] + frame_info_empty_porch[1]
-    total_video_count = frame_count_dict["porch_cat"]["number_of_videos"] + frame_count_dict["empty_porch"]["number_of_videos"]
+    total_processed_frames += frame_info_porch_cat_day[0] + frame_info_porch_cat_night[0] + frame_info_empty_porch_day[0] + frame_info_empty_porch_night[0]
+    total_saved_frames += frame_info_porch_cat_day[1] + frame_info_porch_cat_night[1] + frame_info_empty_porch_day[1] + frame_info_empty_porch_night[1]
+    total_video_count = sum([frame_count_dict[category]["number_of_videos"] for category in frame_count_dict])
 
     print(f"\nTotal number of processed frames: {total_processed_frames}")
     print(f"Total number of saved frames: {total_saved_frames}")
@@ -119,12 +128,22 @@ def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, i
     :return -- a tuple ([total_porch_with_cat_frames], [total_empty_porch_frames], [total_other_frames])])
     """
     frame_count_dict = {
-        "porch_cat": {
+        "porch_cat_day": {
             "total_frames": 0,
             "number_of_videos": 0,
             "videos": {}
         },
-        "empty_porch": {
+        "porch_cat_night": {
+            "total_frames": 0,
+            "number_of_videos": 0,
+            "videos": {}
+        },
+        "empty_porch_day": {
+            "total_frames": 0,
+            "number_of_videos": 0,
+            "videos": {}
+        },
+        "empty_porch_night": {
             "total_frames": 0,
             "number_of_videos": 0,
             "videos": {}
@@ -135,8 +154,10 @@ def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, i
 
     for file in all_files:
         category = None
-        if file.startswith("porch_cat"): category = "porch_cat"
-        elif file.startswith("empty_porch"): category = "empty_porch"
+        if file.startswith("porch_cat_night"): category = "porch_cat_night"
+        elif file.startswith("porch_cat"): category = "porch_cat_day"
+        elif file.startswith("empty_porch_night"): category = "empty_porch_night"
+        elif file.startswith("empty_porch"): category = "empty_porch_day"
 
         if category:
             cap = cv2.VideoCapture(os.path.join(video_path, file))
