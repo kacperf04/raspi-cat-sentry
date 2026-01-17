@@ -4,26 +4,22 @@ import cv2
 import numpy as np
 
 BLUR_THRESHOLD = 100
-DARK_THRESHOLD = 15
-DUPLICATE_THRESHOLD = 5
+DARK_THRESHOLD = 30
+DUPLICATE_THRESHOLD = 10
 VALID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
+CATEGORIES = ["porch_cat_day", "porch_cat_night"]
 
 def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bool, target_total_images: int = 200,
-                 target_porch_with_cat_percentage: float = 0.7, target_empty_porch_percentage: float = 0.3, target_day_percentage: float = 0.6) -> None:
+                target_day_percentage: float = 0.6) -> None:
     """
     Extracts frames from raw videos and saves them in a specified output directory
     :param raw_videos_path -- path to the directory containing raw videos
     :param output_path -- path to the output directory
     :param truncate_output_dir -- whether to truncate the output directory before writing new files
     :param target_total_images -- total number of frames to extract from all videos
-    :param target_porch_with_cat_percentage -- percentage of frames to extract from porch videos with a cat
-    :param target_empty_porch_percentage -- percentage of frames to extract from empty porch videos
     :param target_day_percentage -- percentage of frames to extract from videos during the day (frames from night videos are a complementary subset of frames from day videos)
     :return -- None
     """
-    total_saved_frames = 0
-    total_processed_frames = 0
-
     if not os.path.exists(output_path):
         os.makedirs(output_path)
         print("Created output directory")
@@ -34,91 +30,108 @@ def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bo
 
     frame_count_dict = count_total_frames(raw_videos_path)
 
-    frames_to_extract_porch_cat_day = int(target_total_images * target_porch_with_cat_percentage) * target_day_percentage
-    frames_to_extract_porch_cat_night = int(target_total_images * target_porch_with_cat_percentage) * (1 - target_day_percentage)
-    frames_to_extract_empty_porch_day = int(target_total_images * target_empty_porch_percentage) * target_day_percentage
-    frames_to_extract_empty_porch_night = int(target_total_images * target_empty_porch_percentage) * (1 - target_day_percentage)
+    targets = {
+        "porch_cat_day": int(target_day_percentage * target_total_images),
+        "porch_cat_night": int((1 - target_day_percentage) * target_total_images)
+    }
+    total_stats = {"processed": 0, "saved": 0}
 
-    frame_info_porch_cat_day = extract_frames(raw_videos_path, output_path, "porch_cat_day", frame_count_dict,
-                                              frames_to_extract_porch_cat_day)
-    frame_info_porch_cat_night = extract_frames(raw_videos_path, output_path, "porch_cat_night", frame_count_dict,
-                                              frames_to_extract_porch_cat_night)
-    frame_info_empty_porch_day = extract_frames(raw_videos_path, output_path, "empty_porch_day", frame_count_dict,
-                                                frames_to_extract_empty_porch_day)
-    frame_info_empty_porch_night = extract_frames(raw_videos_path, output_path, "empty_porch_night", frame_count_dict,
-                                                frames_to_extract_empty_porch_night)
+    for category in CATEGORIES:
+        num_videos = frame_count_dict[category]["number_of_videos"]
+        target_for_category = targets.get(category, 0)
 
-    total_processed_frames += frame_info_porch_cat_day[0] + frame_info_porch_cat_night[0] + frame_info_empty_porch_day[0] + frame_info_empty_porch_night[0]
-    total_saved_frames += frame_info_porch_cat_day[1] + frame_info_porch_cat_night[1] + frame_info_empty_porch_day[1] + frame_info_empty_porch_night[1]
-    total_video_count = sum([frame_count_dict[category]["number_of_videos"] for category in frame_count_dict])
+        if num_videos == 0 or target_for_category == 0: continue
 
-    print(f"\nTotal number of processed frames: {total_processed_frames}")
-    print(f"Total number of saved frames: {total_saved_frames}")
-    print(f"Total number of videos processed: {total_video_count}")
+        base_quota, remainder = divmod(target_for_category, num_videos)
+
+        print(f"--- Extracting {target_for_category} frames for {category} videos ---")
+
+        processed, saved = extract_frames(
+            raw_videos_path, output_path, category,
+            frame_count_dict, base_quota, remainder
+        )
+
+        total_stats["processed"] += processed
+        total_stats["saved"] += saved
+
+    print(f"{"="*30}")
+    print(f"DONE.")
+    print(f"Total processed: {total_stats['processed']}")
+    print(f"Total saved: {total_stats['saved']} (Target: {target_total_images})")
+    print(f"{"="*30}")
 
 
-def extract_frames(video_path: str, output_path: str, video_type: str, frame_count_dict: dict, frames_to_extract) -> Tuple[int, int]:
+def extract_frames(video_path: str, output_path: str, category: str,
+                   frame_count_dict: dict, base_quota: int, remainder: int) -> tuple[int, int]:
     """
     Extracts frames from a video and saves them in a specified output directory
     :param video_path -- path to the directory containing raw videos
     :param output_path -- path to the output directory
-    :param video_type -- type of video to extract frames from (porch_cat, empty_porch, other)
+    :param category -- type of video to extract frames from (porch_cat, empty_porch, other)
     :param frame_count_dict -- dictionary containing information about the total number of frames in each video type
-    :param frames_to_extract -- number of frames to extract from each video
+    :param frames_per_video -- number of frames to extract from each video
     :return -- a tuple containing the total number of processed frames and the total number of saved frames
     """
-    total_saved_frames = 0
-    total_processed_frames = 0
+    total_processed = 0
+    total_saved = 0
+    video_files = list(frame_count_dict[category]["videos"].keys())
 
-    total_available_frames = frame_count_dict[video_type]["total_frames"]
-    if total_available_frames == 0: return 0, 0
+    for idx, file in enumerate(video_files):
+        current_video_target = base_quota + (1 if idx < remainder else 0)
 
-    files = list(frame_count_dict[video_type]["videos"].keys())
-    last_saved_image = None
-    frames_since_last_save = float("inf")
+        if current_video_target == 0: continue
 
-    for file in files:
         full_path = os.path.join(video_path, file)
-        print(f"-- Processing {file} --")
+        total_frames_in_video = frame_count_dict[category]["videos"][file]
+
+        print(f"Processing {file} (Target: {current_video_target})")
 
         cap = cv2.VideoCapture(full_path)
         if not cap.isOpened():
-            print(f"Error opening video file: {full_path}")
+            print(f"Failed to open {full_path}")
             continue
 
-        while True:
-            ret, image = cap.read()
-            if not ret: break
+        saved_count = 0
+        last_saved_img = None
+        current_frame_idx = 0
 
-            frames_since_last_save += 1
-            total_processed_frames += 1
+        while saved_count < current_video_target:
+            remaining_needed = current_video_target - saved_count
+            remaining_video = total_frames_in_video - current_frame_idx
 
-            frames_needed = frames_to_extract - total_saved_frames
-            left_available_frames = total_available_frames - total_processed_frames
-
-            if frames_needed <= 0:
+            if remaining_video <= 0:
+                print(f"Reached end of video {file}")
                 break
 
-            if left_available_frames > 0:
-                current_step = left_available_frames / frames_needed
+            step = max(1, remaining_video // remaining_needed)
+            target_idx = current_frame_idx + step
+
+            if step > 5:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_idx)
+                ret, image = cap.read()
+                current_frame_idx = target_idx
             else:
-                current_step = 1
+                ret = False
+                for _ in range(step):
+                    ret, image = cap.read()
+                    current_frame_idx += 1
 
-            if frames_since_last_save >= current_step:
-                if not is_image_representative(last_saved_image, image): continue
+            if not ret: break
 
-                save_name = f"{video_type}_{total_saved_frames}.jpg"
+            total_processed += 1
+
+            if is_image_representative(last_saved_img, image):
+                save_name = f"{category}_{file.split('.')[0]}_{saved_count}.jpg"
                 cv2.imwrite(os.path.join(output_path, save_name), image)
-                last_saved_image = image
-                total_saved_frames += 1
-
-                if total_saved_frames >= frames_to_extract:
-                    print(f"Target reached for {video_type}")
-                    return total_processed_frames, total_saved_frames
+                last_saved_img = image
+                saved_count += 1
+                total_saved += 1
+            else:
+                pass
 
         cap.release()
 
-    return total_processed_frames, total_saved_frames
+    return total_processed, total_saved
 
 
 def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, int]]]:
@@ -127,37 +140,17 @@ def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, i
     :param video_path -- path to the directory containing raw videos
     :return -- a tuple ([total_porch_with_cat_frames], [total_empty_porch_frames], [total_other_frames])])
     """
-    frame_count_dict = {
-        "porch_cat_day": {
-            "total_frames": 0,
-            "number_of_videos": 0,
-            "videos": {}
-        },
-        "porch_cat_night": {
-            "total_frames": 0,
-            "number_of_videos": 0,
-            "videos": {}
-        },
-        "empty_porch_day": {
-            "total_frames": 0,
-            "number_of_videos": 0,
-            "videos": {}
-        },
-        "empty_porch_night": {
-            "total_frames": 0,
-            "number_of_videos": 0,
-            "videos": {}
-        }
-    }
+    frame_count_dict = {cat: {"total_frames": 0, "number_of_videos": 0, "videos": {}} for cat in CATEGORIES}
 
     all_files = [ f for f in os.listdir(video_path) if f.lower().endswith(VALID_EXTENSIONS) ]
 
     for file in all_files:
         category = None
-        if file.startswith("porch_cat_night"): category = "porch_cat_night"
-        elif file.startswith("porch_cat"): category = "porch_cat_day"
-        elif file.startswith("empty_porch_night"): category = "empty_porch_night"
-        elif file.startswith("empty_porch"): category = "empty_porch_day"
+
+        for cat in CATEGORIES:
+            if file.startswith(cat):
+                category = cat
+                break
 
         if category:
             cap = cv2.VideoCapture(os.path.join(video_path, file))
