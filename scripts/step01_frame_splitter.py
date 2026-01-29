@@ -1,5 +1,4 @@
 import os
-from typing import Tuple, Dict
 import cv2
 import numpy as np
 
@@ -9,7 +8,7 @@ DUPLICATE_THRESHOLD = 10
 VALID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 CATEGORIES = ["porch_cat_day", "porch_cat_night"]
 
-def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bool, target_total_images: int = 200,
+def split_frames(raw_videos_path: str, output_path: str, truncate_output_dir: bool, target_total_images: int = 400,
                 target_day_percentage: float = 0.6) -> None:
     """
     Extracts frames from raw videos and saves them in a specified output directory
@@ -69,7 +68,8 @@ def extract_frames(video_path: str, output_path: str, category: str,
     :param output_path -- path to the output directory
     :param category -- type of video to extract frames from (porch_cat, empty_porch, other)
     :param frame_count_dict -- dictionary containing information about the total number of frames in each video type
-    :param frames_per_video -- number of frames to extract from each video
+    :param base_quota -- number of frames to extract from each video
+    :param remainder -- number of frames to extract from videos with fewer frames than the target
     :return -- a tuple containing the total number of processed frames and the total number of saved frames
     """
     total_processed = 0
@@ -134,7 +134,7 @@ def extract_frames(video_path: str, output_path: str, category: str,
     return total_processed, total_saved
 
 
-def count_total_frames(video_path: str) -> Dict[str, Dict[str, int | Dict[str, int]]]:
+def count_total_frames(video_path: str) -> dict[str, dict[str, int | dict[str, int]]]:
     """
     Counts the total number of frames in all input videos
     :param video_path -- path to the directory containing raw videos
@@ -175,7 +175,7 @@ def is_blurry(image: cv2.Mat) -> bool:
     return score < BLUR_THRESHOLD
 
 
-def is_dark_or_empty(image: cv2.Mat):
+def is_dark_or_empty(image: cv2.Mat) -> np.ndarray:
     """
     Heuristic to determine whether an image is dark or empty
     :param image -- input image
