@@ -10,12 +10,8 @@ env/
 .env
 .venv/
 
-# --- Project Data (CRITICAL) ---
-videos_raw/
-raw_data/
-dataset_ready/
-dataset_final/
-datasets/
+# --- Project Data ---
+data/
 
 # --- IDE Settings ---
 .idea/
