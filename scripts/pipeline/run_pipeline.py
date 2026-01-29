@@ -4,7 +4,7 @@ import step01_frame_splitter as s1
 import step02_auto_labeler as s2
 import step03_train_val_split as s3
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 INPUT_DIR = BASE_DIR / "data" / "raw_data"
 TMP_DIR = BASE_DIR / "data" / "tmp_images"
 FINAL_DATASET_DIR = BASE_DIR / "data" / "training_data"
